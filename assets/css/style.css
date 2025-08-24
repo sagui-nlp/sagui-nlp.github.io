@@ -1,10 +1,13 @@
 
 :root {
-  --bg: #ffffff;
-  --ink: #1f2937;
-  --muted: #6b7280;
+  --bg: #F4F1EB;      /* try: #EEF2EE or #F4F1EB */
+  --ink: #1f2937;     /* main text */
+  --muted: #6b7280;   /* secondary text */
+  --card: #ffffff;    /* cards/posts */
+  --codebg: #f8fafc;  /* code blocks */
+  --border: #e5e7eb;  /* subtle lines */
+
   --accent: #2563eb;
-  --card: #f8fafc;
   --radius: 14px;
   --sidebar-w: 220px;
   --page-max: 1100px; /* keeps content in the center, not full width */
@@ -21,12 +24,14 @@ html,body { margin:0; padding:0; background:var(--bg); color:var(--ink); font:16
   max-width: var(--page-max);
   margin: 28px auto;
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
-  gap: 24px;
+  /* sidebar width: min 140px, preferred 16vw, max 220px */
+  grid-template-columns: clamp(140px, 10vw, 220px) 1fr;
+  gap: 16px; /* reduce gap if you had 24px */
   padding: 0 16px;
 }
 
 .sidebar { position: sticky; top: 12px; align-self: start; }
+
 .menu { display:flex; flex-direction:column; gap:10px; }
 .menu a { color:var(--ink); text-decoration:none; padding:8px 10px; border-radius:10px; }
 .menu a:hover { background:var(--card); }
@@ -44,7 +49,7 @@ html,body { margin:0; padding:0; background:var(--bg); color:var(--ink); font:16
   border-radius: var(--radius);
   text-decoration:none;
   color:inherit;
-  border:1px solid #e5e7eb;
+  border:1px solid vard(--border);
   transition: transform .08s ease, box-shadow .08s ease;
 }
 .card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.06); }
@@ -52,7 +57,7 @@ html,body { margin:0; padding:0; background:var(--bg); color:var(--ink); font:16
 .card p { margin:0; color:var(--muted); font-size:.95rem; }
 
 .post-list { list-style:none; padding:0; margin:0; }
-.post-list li { padding:14px 0; border-bottom:1px dashed #e5e7eb; }
+.post-list li { padding:14px 0; border-bottom:2px dashed #e5e7eb; }
 .post-list h3 { margin:0; font-size:1.05rem; }
 .post-list small { color:var(--muted); }
 .footer { max-width: var(--page-max); margin: 36px auto; padding: 0 16px; color:var(--muted); }
@@ -71,8 +76,8 @@ code {
 
 /* Block code produced by Jekyll+Rouge */
 .highlighter-rouge, .highlight {
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
+  background: var(--codebg);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 

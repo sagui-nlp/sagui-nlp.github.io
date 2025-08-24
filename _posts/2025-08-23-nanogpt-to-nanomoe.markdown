@@ -3,7 +3,6 @@ layout: default
 title:  Do nanoGPT ao nanoMoE
 date:   2025-08-23 22:03:16 -0300
 categories: moe
-excerpt: Transformando o nanoGPT em nanoMoE
 ---
 
 # Do nanoGPT ao nanoMoE
