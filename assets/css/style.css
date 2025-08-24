@@ -6,7 +6,7 @@
   --card: #ffffff;    /* cards/posts */
   --codebg: #f8fafc;  /* code blocks */
   --border: #e5e7eb;  /* subtle lines */
-
+  --avatar-size: 128px;
   --accent: #2563eb;
   --radius: 14px;
   --sidebar-w: 220px;
@@ -24,6 +24,7 @@ img, picture, video, canvas, svg, iframe{
 
 /* keep iframes (e.g., YouTube) nicely proportioned */
 iframe{ width: 100%; aspect-ratio: 16 / 9; }
+
 .banner { position: relative; }
 .banner img { width:100%; height:300; object-fit:cover; display:block; }
 .site-title { position:absolute; left:24px; bottom:16px; font-weight:700; font-size:1.4rem; }
@@ -114,3 +115,27 @@ code {
 }
 .rouge-table .code { padding: 0 0 0 12px; }
 
+.members-grid{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+/* round avatar like LinkedIn */
+.avatar{
+  width: var(--avatar-size);
+  height: var(--avatar-size);
+  border-radius: 50%;       /* makes the image circular */
+  object-fit: cover;        /* fill the circle nicely */
+  object-position: center;
+  display: block;
+}
+
+/* name below the image, clickable */
+.member-name{
+  display: inline-block;
+  margin-top: 10px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.member-name:hover{ text-decoration: underline; }

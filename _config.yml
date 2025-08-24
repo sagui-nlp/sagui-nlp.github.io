@@ -4,4 +4,7 @@ url: https://sagui-nlp.github.io
 baseurl: ""        # keep empty for org root
 markdown: kramdown # default on GitHub Pages/Jekyll
 permalink: /:categories/:year/:month/:day/:title/
+collections:
+  members:
+    output: true
 
