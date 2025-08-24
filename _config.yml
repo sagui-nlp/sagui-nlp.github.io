@@ -1,0 +1,7 @@
+title: Sagui NLP
+description: Research • Tools • Papers
+url: https://sagui-nlp.github.io
+baseurl: ""        # keep empty for org root
+markdown: kramdown # default on GitHub Pages/Jekyll
+permalink: /:categories/:year/:month/:day/:title/
+
