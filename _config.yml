@@ -7,4 +7,6 @@ permalink: /:categories/:year/:month/:day/:title/
 collections:
   members:
     output: true
+  papers:
+    output: true
 
