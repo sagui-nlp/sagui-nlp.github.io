@@ -5,8 +5,56 @@ date:   2025-08-23 22:03:16 -0300
 categories: moe
 ---
 
-# Do nanoGPT ao nanoMoE
+<!-- 
+1. Adicionar figuras da arquitetura
+2. nanoGPT to nanoMoE
+   1. nanoGPT
+      1. Explicar o nanoGPT
+      2. Justificar a escolha do modelo nanoGPT para o nanoMoE
+         1. opensource, sem dependência externa (como HF/TF)
+      3. Adicionar explicações dos parâmetros do GPTconfig
+      4. Explicar os resultados obtidos
+   2. nanoMoE
+ -->
 
+<!-- # Do nanoGPT ao nanoMoE
+<INTRODUÇÃO SOBRE A SAGA NANO GPT AO NANO MOE> -->
+
+## nanoGPT
+
+NanoGPT é uma implementação do modelo GPT, foi escrito com foco em simplicidade e didática, tornando o código acessível para quem deseja entender ou modificar os detalhes do funcionamento de um transformer. O projeto se destaca por dispensar dependências externas complexas e por oferecer um código limpo e direto: o arquivo train.py contém um loop de treinamento e o modelo GPT em poucas linhas.
+
+O nanoGPT permite que pesquisadores e entusiastas testem ideias, ajustem hiperparâmetros e explorem o funcionamento interno dos transformers sem a necessidade de grandes infraestruturas. O projeto serve como uma base para experimentos e extensões, como a implementação de arquiteturas MoE (Mixture of Experts), tornando-o uma ferramenta valiosa para quem deseja aprender em modelos de linguagem.
+
+Nos próximos posts, vamos detalhar a arquitetura e o processo de treinamento do nanoGPT, mostrando as principais etapas e decisões técnicas envolvidas. Em seguida, serão apresentadas as modificações necessárias para implementar o MoE (Mixture of Experts) e os principais desafios encontrados durante o desenvolvimento dessa extensão.
+
+## Entendendo o nanoGPT através dos parâmetros
+
+A seguir está a implementação da classe `GPTConfig`, que define os principais parâmetros do modelo. Cada parâmetro influencia diretamente a capacidade, desempenho e comportamento do nanoGPT durante o treinamento e a geração de texto.
+
+```python
+class GPTConfig:
+    block_size: int = 1024
+    vocab_size: int = 50304 # GPT-2 vocab_size of 50257, padded up to nearest multiple of 64 for efficiency
+    n_layer: int = 12
+    n_head: int = 12
+    n_embd: int = 768
+    dropout: float = 0.0
+    bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
+```
+
+- **block_size**: define o tamanho do contexto processado pelo modelo. Nesta implementação o modelo de atenção é implementada de forma quadrática, diferente de modelos mais recentes, como o Mixtral, utilizam abordagens diferentes como SMoE. Caso queira entender mais sobre atenção --ALGUMA REF--
+- **vocab_size**: quantidade de tokens distintos que o modelo pode representar. No caso do GPT-2, o valor é ajustado para facilitar operações internas.
+- **n_layer**: número de camadas do transformer. Mais camadas aumentam a capacidade do modelo, mas também o custo computacional.
+- **n_head**: número de cabeças de atenção em cada camada. Cabeças múltiplas permitem que o modelo foque em diferentes partes da sequência simultaneamente.
+- **n_embd**: dimensão do embedding dos tokens. Embeddings maiores aumentam a expressividade do modelo.
+- **dropout**: taxa de dropout aplicada durante o treinamento para evitar overfitting. Valores maiores podem ajudar em conjuntos de dados pequenos.
+- **bias**: controla o uso de bias nas camadas lineares e de normalização. Desativar pode trazer pequenas melhorias de desempenho.
+
+Ajustar esses parâmetros permite adaptar o nanoGPT para diferentes cenários, desde testes rápidos até experimentos mais robustos. Recomenda-se variar n_layer, n_head e n_embd para observar o impacto na capacidade e
+
+Teste valores diferentes com n_layer / n_head / n_embd para sentir capacidade.
+Note que os parâmetros irão começar a escalar à medida que esses valores aumentam.
 Apesar da alta dos LLMs gigantes, os modelos menores e abertos são extremamente úteis pra testar ideias e entender como as coisas funcionam. Um exemplo é o nanoGPT do Karpathy, dá para explorar o código, testar cada parâmetro e entender como cada coisa funciona (sem precisar de uma infinidade de GPU mas se desejar ainda dá pra usar uma T4 do colab). Nesta trilha do nanoMoE, vamos iniciar com um treino simples em pt-br no nanoGPT para explorar o código e estrutura do modelo antes de prosseguir para o MoE.
 
 ## Por que testar um modelo pequeno?
