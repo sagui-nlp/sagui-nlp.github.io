@@ -1,11 +1,12 @@
 ---
 layout: default
-title:  "NanoGPT ao nanoMoE: Part‑1 — NanoGPT"
+title:  "NanoGPT ao nanoMoE: Part‑1"
 date:   2025-08-23 22:03:16 -0300
 categories: moe
 ---
+# *NanoGPT ao nanoMoE*: Part‑1
 
-# Introdução
+## Introdução
 
 *NanoGPT* é uma implementação minimalista do GPT‑2 escrita com foco em **simplicidade** e **didática**. O código facilita a leitura e a modificação de cada etapa de um Transformer, dispensando dependências externas complexas (por exemplo, *Hugging Face* ou *PyTorch*).
 Graças a essa leveza, a comunidade passou a usá‑lo como **ponto de partida** para testar ideias, ajustar hiperparâmetros e, principalmente, criar extensões—como esta série que transforma o modelo em um *Mixture of Experts* (MoE).
