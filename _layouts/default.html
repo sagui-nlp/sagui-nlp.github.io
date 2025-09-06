@@ -4,13 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title>{{ page.title }} | {{ site.title }}</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" integrity="..." crossorigin="anonymous">
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$','$$'], ['\\[','\\]']],
+          processEscapes: true
+        }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
     <link
       rel="stylesheet"
       href="{{ '/assets/css/style.css' | relative_url }}"
     />
     <link rel="stylesheet" href="{{ '/assets/css/syntax.css' | relative_url }}">
-  </head>
+    </head>
   <body>
     <header class="banner">
       <img
