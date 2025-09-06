@@ -43,7 +43,7 @@ class GPTConfig:
     bias: bool = True  # True: bias em Linear + LayerNorm (como GPT‑2). False: ligeiramente melhor e mais rápido
 ```
 
-* **block\_size**: tamanho do contexto. Nesta implementação a atenção é *quadrática*—diferentemente de modelos recentes, como o *Mixtral*, que usam abordagens como *SMoE*.
+* **block\_size**: tamanho do contexto. Nesta implementação a atenção é *quadrática*.
 * **vocab\_size**: número de tokens distintos que o modelo reconhece.
 * **n\_layer**: quantidade de camadas *decoder* do Transformer. Mais camadas ≈ padrões mais complexos, porém custo de `O(block_size² * n_embd)`.
 * **n\_head**: cabeças de atenção; partem `n_embd` em `n_head` fatias. Mais cabeças aprendem relações paralelas adicionais.
