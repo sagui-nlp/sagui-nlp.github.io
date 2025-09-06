@@ -8,8 +8,8 @@ categories: moe
 
 ## Introdução
 
-*NanoGPT* é uma implementação minimalista do GPT‑2 escrita com foco em **simplicidade** e **didática**. O código facilita a leitura e a modificação de cada etapa de um Transformer, dispensando dependências externas complexas (por exemplo, *Hugging Face* ou *PyTorch*).
-Graças a essa leveza, a comunidade passou a usá‑lo como **ponto de partida** para testar ideias, ajustar hiperparâmetros e, principalmente, criar extensões—como esta série que transforma o modelo em um *Mixture of Experts* (MoE).
+*NanoGPT* é uma implementação minimalista do GPT‑2 escrita com foco em **simplicidade** e **didática**. O código facilita a leitura e a modificação de cada etapa de um Transformer, dispensando dependências externas complexas (por exemplo, *Hugging Face*).
+Graças a essa leveza, podemos usá‑lo como **ponto de partida** para testar ideias, ajustar hiperparâmetros e, principalmente, criar extensões, como transformar o modelo em um *Mixture of Experts* (MoE).
 
 > Nos próximos posts vamos dissecar a arquitetura original, mostrar o processo de treinamento e, em seguida, detalhar as alterações necessárias para inserir uma camada MoE: *gate*, *top‑k*, métricas de balanceamento e o impacto na perplexidade.
 
