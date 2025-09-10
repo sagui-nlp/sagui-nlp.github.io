@@ -60,13 +60,13 @@ class GPTConfig:
 
 ### Loss (Cross-Entropy)
 
-$\mathcal{L}_{CE} = -\frac{1}{T}\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t})$
+$$ \mathcal{L}_{CE} = -\frac{1}{T}\sum_{t=1}^{T} \log p_\theta(x_t \mid x_{<t}) $$
 
 ### Perplexity
 
 Perplexity is `exp(loss)`. Before training its value tends to be close to the vocabulary size; values near **1** indicate the model memorized the data.
 
-$\mathrm{PPL} = \exp(\mathcal{L}_{CE})$
+$$ \mathrm{PPL} = \exp(\mathcal{L}_{CE}) $$
 
 ---
 
