@@ -1,10 +1,10 @@
 ---
 layout: default
-title:  "NanoGPT ao nanoMoE: Part‑1"
+title:  "From NanoGPT To nanoMoE: Part‑1"
 date:   2025-08-23 22:03:16 -0300
 categories: moe
 ---
-# *NanoGPT ao nanoMoE*: Part‑1
+# *From NanoGPT To nanoMoE*: Part‑1
 
 
 ## Introduction
