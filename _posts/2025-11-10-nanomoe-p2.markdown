@@ -1,0 +1,242 @@
+---
+layout: default
+title:  "From NanoGPT To nanoMoE: Part-2"
+date:   2025-09-01 09:00:00 -0300
+categories: moe
+---
+
+# *From NanoGPT to nanoMoE*: Part-2
+
+**Understanding the MoE Layer**
+
+> In Part-1 we started by explaining why starting with a small model is helpful, we went through the parameters that constitutes the GPT-2, how to train it and how the Perplexity loss works. This time we will look into what makes a MoE Layer, how to compute the router loss, MoE loss and how to combine them. We will also into other concepts like capacity and explain how they influence the experts.
+
+---
+
+## What we’re building (TL;DR)
+
+Given a number of experts **n_experts**, the number of desired active experts **k** and a sequence of **N** tokens:
+
+1. **Router** model with calculate $ score(x_i, e_j) \in \[0,1\] $, that is how likely the expert _j_ will be the best choice for processing the _i-th_ token in the sequence.
+1. For each token selected the **top-k** best scored experts.
+1. Drop every token from each expert that exceeds the set **capacity**.
+1. The dropped tokens go through an **identity** projection.
+1. Let every expert **project** the remaining tokens.
+1. Calculate the loss using the **importance** and **load** from each expert.
+
+---
+
+## The tiny Expert block
+
+The expert is actually the same as the conventional feedforward network from the Transformers architecture:
+
+```python
+class Expert(nn.Module):
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.0):
+        super().__init__()
+        self.fc1 = nn.Linear(d_model, d_ff)
+        self.act = nn.GELU()
+        self.fc2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x):
+        # x: (N_tokens, d_model)
+        return self.dropout(self.fc2(self.act(self.fc1(x))))
+```
+
+As in the MLP from Transformers, the **d_ff** parameter is usually 4 times bigger than **d_model**
+
+---
+
+## The MoE layer skeleton
+
+```python
+class MoELayer(nn.Module):
+   def __init__(self, config):
+        super().__init__()
+        self.d_model = config.n_embd
+        self.n_experts = config.n_experts
+        self.capacity_factor = config.capacity_factor  
+        self.k = config.k                             
+        self.experts_weight = config.experts_weight
+        self.router_weight = config.router_weight
+        self.dropout = config.dropout
+
+        # ... rest of the code
+```
+
+Here we give a better explanation on the parameters of a **MoE Layer**:
+
+- **d_model**: is the hidden size of the model, for instance **BERT** used a hidden size of 768.
+- **n_experts**: the maximum number of experts available
+- **capacity_factor**: the capacity of each expert is the maximum number of tokens it can process. The final capacity is calculated using the formula:
+
+$$ capacity = \frac{S * \text{capacity_factor}}{\text{n_experts}} $$
+
+Where **S** is the total number of tokens in the batch. If this factor is equal to the number of experts then there is no limit to the number of tokens per expert, this could lead to favoritism, where one expert process most of the tokens. If equal 1 then each expert can only process a equal part as the rest, but it makes more tokens go through the identity projection, decreasing the effect of the experts on the output. A good value is very important to stability in training.
+
+- **k**: the maximum number of experts that can process one token.
+- **experts_weight** and **router_weight**: Scaling factors that help control the importance of each part of the loss (discussed more later).
+
+
+## Router + Top-k
+
+```python
+H_flat = H.reshape(S, d)               # (S,d)
+router_logits = self.gate(H_flat).float()    # (S,E)
+router_probs = F.softmax(router_logits, -1)  # (S,E)
+
+k = min(self.k, self.n_experts)
+topk_scores, topk_experts = torch.topk(router_probs, k=k, dim=-1)  # (S,k)
+```
+
+* Usamos as **probabilidades** pós-softmax como *scores*.
+* Para cada token, guardamos os `k` especialistas e seus *scores*.
+
+---
+
+## Admission: cortar no topo por capacidade
+
+Para cada especialista `e`, coletamos tokens que o escolheram no top-k, **reordenamos por score** e **limitamos a C**.
+
+```python
+capacity = self._compute_capacity(S)
+per_expert_tokens, per_expert_scores = [], []
+
+for e in range(self.n_experts):
+    mask_e = (topk_experts == e)   # (S,k) → quais posições escolheram e
+    if not mask_e.any():
+        per_expert_tokens.append(torch.empty(0, dtype=torch.long, device=H.device))
+        per_expert_scores.append(torch.empty(0, dtype=topk_scores.dtype, device=H.device))
+        continue
+    token_ids = mask_e.nonzero(as_tuple=False)[:, 0]  # (N_assign_e,)
+    scores_e  = topk_scores[mask_e]                   # (N_assign_e,)
+
+    if scores_e.numel() > capacity:
+        keep_scores, keep_idx = torch.topk(scores_e, k=capacity, dim=0)
+        token_ids = token_ids[keep_idx]
+        scores_e  = keep_scores
+
+    per_expert_tokens.append(token_ids)
+    per_expert_scores.append(scores_e)
+```
+
+**Resultado:** cada `expert e` recebe no máximo `C` *assignments* de maior score.
+
+---
+
+## Fallback identity (robustez first)
+
+```python
+H_out_flat = H_flat.clone()  # começa como identidade
+```
+
+* Tokens **não admitidos** continuam com a ativação original (equivalente a “expert nulo”).
+* Isso evita *holes* na computação quando há *overflow* de capacidade.
+
+---
+
+## Combine: executar especialistas e **somar contribuições**
+
+```python
+for e in range(self.n_experts):
+    token_ids = per_expert_tokens[e]
+    if token_ids.numel() == 0: 
+        continue
+    expert_in  = H_flat[token_ids]            # (N_e,d)
+    expert_out = self.experts[e](expert_in)   # (N_e,d)
+    H_out_flat.index_add_(0, token_ids, expert_out)   # soma na saída
+```
+
+* Executamos somente nos tokens admitidos — **eficiência** é o ponto.
+* Somamos as contribuições sobre o *fallback*.
+
+> **Nota rápida sobre pesos:** se quisermos uma **combinação ponderada pelos scores** (`w_e`), basta multiplicar `expert_out` por `w_e` (e opcionalmente renormalizar por soma dos pesos admitidos do token). Mostramos essa variante no “Refinamentos” no fim.
+
+---
+
+## Aux/balancing loss
+
+Queremos que **nenhum** especialista vire gargalo. Usamos duas ideias:
+
+1. **Importance**: média das probabilidades de roteamento por expert (antes da capacidade).
+2. **Load**: fração de *assignments admitidos* que cada expert realmente recebeu.
+
+```python
+importance = router_probs.mean(dim=0)  # (E,)
+
+load = torch.zeros(self.n_experts, device=H.device, dtype=router_probs.dtype)
+denom_load = max(1, S * k)
+for e in range(self.n_experts):
+    load[e] = per_expert_tokens[e].numel() / denom_load
+
+# Regularização do roteador (Z-loss-like): estabiliza softmax
+router_loss = (
+    self.router_weight * (torch.logsumexp(router_logits, dim=-1) ** 2.0).mean()
+)
+
+balance_loss = (self.n_experts * (importance * load).mean()) * self.experts_weight
+moe_loss = balance_loss.to(H.dtype) + router_loss.to(H.dtype)
+```
+
+* **Balance** força *importância ≈ carga*, aproximando uso uniforme.
+* **Router loss** estabiliza a escala dos logits (*evita explosões no softmax*).
+
+---
+
+## Putting it back
+
+```python
+H_out = H_out_flat.view(B, T, d)
+return H_out, moe_loss
+```
+
+Pronto — a camada MoE agora se comporta como um **FFN esparso** plugável no bloco Transformer.
+
+---
+
+## Refinamentos (rápidos e úteis)
+
+* **(1) Ponderar contribuições pelos scores**
+  Para reproduzir “weighted-combine” (descrita no docstring), use:
+
+  ```python
+  # depois de construir per_expert_tokens/per_expert_scores
+  denom = torch.zeros(S, device=H.device, dtype=router_probs.dtype)
+  if admitted_token_ids_all.numel() > 0:
+      denom.index_add_(0, admitted_token_ids_all, admitted_scores_all)
+
+  # no loop de combine:
+  w = per_expert_scores[e] / (denom[token_ids] + 1e-9)  # (N_e,)
+  expert_out = expert_out * w.unsqueeze(-1)
+  H_out_flat.index_add_(0, token_ids, expert_out)
+  ```
+
+  Isso assegura que, se um token foi admitido por múltiplos experts, suas contribuições somam para ~1.
+
+* **(2) Config sanity**
+  Garanta que `router_weight` exista no `config` (está sendo usado ao calcular `router_loss`). Ex.:
+
+  ```python
+  self.router_weight = getattr(config, "router_weight", 0.0)
+  ```
+
+* **(3) k=1 primeiro**
+  Comece com `k=1` (Switch-style): *debuggabilidade* e custo menores. Depois experimente `k=2`.
+
+---
+
+## Debug checklist (para não sofrer depois)
+
+* **Distribuição do uso**: `%` de tokens por expert antes/depois da capacidade.
+* **Taxa de drop**: quantos *assignments* foram rejeitados? Ajuste `capacity_factor`.
+* **Gradientes do gate**: monitore norma dos logits (Z-loss ajuda).
+* **Estabilidade do *loss***: compare *baseline FFN* vs *MoE* em *val*.
+
+---
+
+## Próximos passos
+
+No próximo trecho, plugar essa `MoELayer` no bloco Transformer (substituindo o FFN), ligar os *metrics* de balanceamento no *training loop* e analisar o efeito em *perplexity*.
+
+Se quiser, já deixo um *diff* pequeno de “weighted-combine + router_weight no config” para você colar no repo.
