@@ -17,8 +17,8 @@ categories: moe
 
 Given a number of experts **n_experts**, the number of desired active experts **k** and a sequence of **N** tokens:
 
-1. **Router** model with calculate $ score(x_i, e_j) \in \[0,1\] $, that is how likely the expert _j_ will be the best choice for processing the _i-th_ token in the sequence.
-1. For each token selected the **top-k** best scored experts.
+1. The **Router** model will calculate $ score(x_i, e_j) \in \[0,1\] $, that is how likely the expert _j_ will be the best choice for processing the _i-th_ token in the sequence.
+1. For each token, select the **top-k** highest-scoring experts.
 1. Drop every token from each expert that exceeds the set **capacity**.
 1. The dropped tokens go through an **identity** projection.
 1. Let every expert **project** the remaining tokens.
@@ -44,7 +44,7 @@ class Expert(nn.Module):
         return self.dropout(self.fc2(self.act(self.fc1(x))))
 ```
 
-As in the MLP from Transformers, the **d_ff** parameter is usually 4 times bigger than **d_model**
+As in the MLP from Transformers, the **d_ff** parameter is usually 4 times bigger than **d_model**.
 
 ---
 
@@ -65,7 +65,7 @@ class MoELayer(nn.Module):
         # ... rest of the code
 ```
 
-Here we give a better explanation on the parameters of a **MoE Layer**:
+Here we give a better explanation of the parameters of a **MoE Layer**:
 
 - **d_model**: is the hidden size of the model, for instance **BERT** used a hidden size of 768.
 - **n_experts**: the maximum number of experts available
@@ -82,7 +82,7 @@ Where **S** is the total number of tokens in the batch. If this factor is equal 
 
 ## Choosing the top-k experts
 
-Now lets check the code for finding the **top-k** experts for each token. Lets assume that **H** is the matrix of (B, N, d) that is, **B** sequences of length **N** with a embedding dimension of **d**.
+Now lets check the code for finding the **top-k** experts for each token. Lets assume that **H** is the matrix of (B, N, d) that is, **B** sequences of length **N** with an embedding dimension of **d**.
 
 ```python
 ## we first flatten the H matrix
@@ -101,9 +101,7 @@ topk_scores, topk_experts = torch.topk(router_probs, k=self.k, dim=-1)  # (S,k)
 
 ## Applying capacity limits
 
-Para cada especialista `e`, coletamos tokens que o escolheram no top-k, **reordenamos por score** e **limitamos a C**.
-
-As mentioned before, the experts have a total token capacity. Lets say 200 tokens are assigned to the same expert, however, the capacity is 150, that means that 50 tokens will not be processed by this expert. The common fallback applied here is the identity projection, if no other expert is assigned to this token then it will remain unchanged.
+As mentioned before, the experts have a total token capacity. Let's say 200 tokens are assigned to the same expert, however, the capacity is 150, that means that 50 tokens will not be processed by this expert. The common fallback applied here is the identity projection, if no other expert is assigned to this token then it will remain unchanged.
 
 To select the tokens that will be processed and the ones that will fallback, we can either assign token to each expert based on the order of appearance in the batch or choose based on their scores. For this implementation we selected the last method. 
 
@@ -136,7 +134,7 @@ for e in range(self.n_experts):
 
 ```python
 ## copy the current H_flat matrix
-## this is important for the tokens that wont be processed by any expert
+## this is important for the tokens that won't be processed by any expert
 H_out_flat = H_flat.clone()
 
 for e in range(self.n_experts):
