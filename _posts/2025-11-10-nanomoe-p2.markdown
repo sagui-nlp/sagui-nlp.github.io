@@ -78,41 +78,49 @@ Where **S** is the total number of tokens in the batch. If this factor is equal 
 - **k**: the maximum number of experts that can process one token.
 - **experts_weight** and **router_weight**: Scaling factors that help control the importance of each part of the loss (discussed more later).
 
+---
 
-## Router + Top-k
+## Choosing the top-k experts
+
+Now lets check the code for finding the **top-k** experts for each token. Lets assume that **H** is the matrix of (B, N, d) that is, **B** sequences of length **N** with a embedding dimension of **d**.
 
 ```python
+## we first flatten the H matrix
 H_flat = H.reshape(S, d)               # (S,d)
+## then each token is processed by the router 
 router_logits = self.gate(H_flat).float()    # (S,E)
+## finally apply softmax to get a score between 0 and 1
 router_probs = F.softmax(router_logits, -1)  # (S,E)
 
-k = min(self.k, self.n_experts)
-topk_scores, topk_experts = torch.topk(router_probs, k=k, dim=-1)  # (S,k)
+## we use torch.topk to get scores and the indices of the highest scores from the router_probs
+## using the router_logits would also work if we only need the expert indices
+topk_scores, topk_experts = torch.topk(router_probs, k=self.k, dim=-1)  # (S,k)
 ```
-
-* Usamos as **probabilidades** pós-softmax como *scores*.
-* Para cada token, guardamos os `k` especialistas e seus *scores*.
 
 ---
 
-## Admission: cortar no topo por capacidade
+## Applying capacity limits
 
 Para cada especialista `e`, coletamos tokens que o escolheram no top-k, **reordenamos por score** e **limitamos a C**.
 
+As mentioned before, the experts have a total token capacity. Lets say 200 tokens are assigned to the same expert, however, the capacity is 150, that means that 50 tokens will not be processed by this expert. The common fallback applied here is the identity projection, if no other expert is assigned to this token then it will remain unchanged.
+
+To select the tokens that will be processed and the ones that will fallback, we can either assign token to each expert based on the order of appearance in the batch or choose based on their scores. For this implementation we selected the last method. 
+
 ```python
+## compute the capacity that each expert will have
 capacity = self._compute_capacity(S)
 per_expert_tokens, per_expert_scores = [], []
 
 for e in range(self.n_experts):
-    mask_e = (topk_experts == e)   # (S,k) → quais posições escolheram e
-    if not mask_e.any():
-        per_expert_tokens.append(torch.empty(0, dtype=torch.long, device=H.device))
-        per_expert_scores.append(torch.empty(0, dtype=topk_scores.dtype, device=H.device))
-        continue
+    ## get the tokens and scores that were assigned to the e-th expert
+    mask_e = (topk_experts == e)   # (S,k)
     token_ids = mask_e.nonzero(as_tuple=False)[:, 0]  # (N_assign_e,)
     scores_e  = topk_scores[mask_e]                   # (N_assign_e,)
 
+    ## if the total is greater than the capacity
     if scores_e.numel() > capacity:
+        ## select the ones with the highest score
         keep_scores, keep_idx = torch.topk(scores_e, k=capacity, dim=0)
         token_ids = token_ids[keep_idx]
         scores_e  = keep_scores
@@ -121,122 +129,91 @@ for e in range(self.n_experts):
     per_expert_scores.append(scores_e)
 ```
 
-**Resultado:** cada `expert e` recebe no máximo `C` *assignments* de maior score.
 
 ---
 
-## Fallback identity (robustez first)
+## Computing the experts outputs
 
 ```python
-H_out_flat = H_flat.clone()  # começa como identidade
-```
+## copy the current H_flat matrix
+## this is important for the tokens that wont be processed by any expert
+H_out_flat = H_flat.clone()
 
-* Tokens **não admitidos** continuam com a ativação original (equivalente a “expert nulo”).
-* Isso evita *holes* na computação quando há *overflow* de capacidade.
-
----
-
-## Combine: executar especialistas e **somar contribuições**
-
-```python
 for e in range(self.n_experts):
+    ## get the token_ids for the e-th expert
     token_ids = per_expert_tokens[e]
     if token_ids.numel() == 0: 
         continue
+
+    ## get the current representation of the token_ids
     expert_in  = H_flat[token_ids]            # (N_e,d)
+    ## compute the expert projection
     expert_out = self.experts[e](expert_in)   # (N_e,d)
-    H_out_flat.index_add_(0, token_ids, expert_out)   # soma na saída
+    ## add the expert projection to the existing embedding
+    H_out_flat.index_add_(0, token_ids, expert_out)
+
+## reshape back to (B, N, d)
+H_out = H_out_flat.view(B, N, d)
 ```
 
-* Executamos somente nos tokens admitidos — **eficiência** é o ponto.
-* Somamos as contribuições sobre o *fallback*.
+If a token is not processed by any expert its representation will remain unchanged. The other tokens will have its new representation being a sum of the initial representation plus the calculated projections from each expert. If needed, we can also weight every expert projection by the score or importance of the token being processed.
 
-> **Nota rápida sobre pesos:** se quisermos uma **combinação ponderada pelos scores** (`w_e`), basta multiplicar `expert_out` por `w_e` (e opcionalmente renormalizar por soma dos pesos admitidos do token). Mostramos essa variante no “Refinamentos” no fim.
 
 ---
 
-## Aux/balancing loss
+## Router and Balance loss
 
-Queremos que **nenhum** especialista vire gargalo. Usamos duas ideias:
+We do not want that any expert gets a preference, by being activated too often, or be ignored by not being assigned to any token.
+To counter these possible effects we introduce two components to the loss.
 
-1. **Importance**: média das probabilidades de roteamento por expert (antes da capacidade).
-2. **Load**: fração de *assignments admitidos* que cada expert realmente recebeu.
+The first is the **Router loss** as given by equation:
+
+$$ r * \frac{ \log \left( \sum^S \exp(x) \right)^2 }{S}$$
+
+Where **x** are the logits calculated by the router and **r** is a weighing coefficient to help control the effect of the result on the total loss.
+
+The other part is the **Balance loss**:
+
+$$ w * \text{n_experts} * \frac{\text{importance} * \text{load}}{S} $$
+
+The **importance** is the mean probability assigned to each expert. 
+The **load** is number of tokens assigned to each expert.
+
+The **Balance loss** penalizes both the extremities:
+
+ - Experts that are too important for a few tokens (small load)
+ - Experts that have too much low score tokens assigned to it (small importance)
+
+The ideal result is a well balanced set of experts, where each expert is important to a equal number of tokens.
+
+Just like for the **Router loss**, **w** is a coefficient to help control the contribution of the **Balance loss**.
 
 ```python
 importance = router_probs.mean(dim=0)  # (E,)
-
 load = torch.zeros(self.n_experts, device=H.device, dtype=router_probs.dtype)
-denom_load = max(1, S * k)
 for e in range(self.n_experts):
-    load[e] = per_expert_tokens[e].numel() / denom_load
+    load[e] = per_expert_tokens[e].numel()
 
-# Regularização do roteador (Z-loss-like): estabiliza softmax
 router_loss = (
-    self.router_weight * (torch.logsumexp(router_logits, dim=-1) ** 2.0).mean()
+    self.r * (torch.logsumexp(router_logits, dim=-1) ** 2.0).mean()
 )
-
-balance_loss = (self.n_experts * (importance * load).mean()) * self.experts_weight
+balance_loss = (self.n_experts * (importance * load).mean()) * self.w
 moe_loss = balance_loss.to(H.dtype) + router_loss.to(H.dtype)
 ```
 
-* **Balance** força *importância ≈ carga*, aproximando uso uniforme.
-* **Router loss** estabiliza a escala dos logits (*evita explosões no softmax*).
+---
+
+## Debug Checklist
+
+**MoE** gives new powers to the Transformers architecture, however it also adds many new hyperparameters. Here are somethings to track to make sure the training is going well:
+
+* **Number of dropped tokens**: If too many tokens are being dropped that means the capacity is too low and should be increased as it gives the model more expression capability.
+* **Stability of Experts**: For a validation batch you can keep track of the experts chosen for each token, if the scores and the experts change too much that means that the training is unstable. This behaviour should decrease the longer we train. If it does not than we either check for bugs in our code or try to adjust the **r** and **w** coefficients.
+* **Loss stability**: The stability of the loss should also be tracked a too unstable loss can point to bugs or that other parameters like number of experts, top-k and capacity need to be fine tuned.
 
 ---
 
-## Putting it back
+## Next Steps
 
-```python
-H_out = H_out_flat.view(B, T, d)
-return H_out, moe_loss
-```
+In the next post we will integrate the **MoE** into the training loop and check how hyperparameters affect performance.
 
-Pronto — a camada MoE agora se comporta como um **FFN esparso** plugável no bloco Transformer.
-
----
-
-## Refinamentos (rápidos e úteis)
-
-* **(1) Ponderar contribuições pelos scores**
-  Para reproduzir “weighted-combine” (descrita no docstring), use:
-
-  ```python
-  # depois de construir per_expert_tokens/per_expert_scores
-  denom = torch.zeros(S, device=H.device, dtype=router_probs.dtype)
-  if admitted_token_ids_all.numel() > 0:
-      denom.index_add_(0, admitted_token_ids_all, admitted_scores_all)
-
-  # no loop de combine:
-  w = per_expert_scores[e] / (denom[token_ids] + 1e-9)  # (N_e,)
-  expert_out = expert_out * w.unsqueeze(-1)
-  H_out_flat.index_add_(0, token_ids, expert_out)
-  ```
-
-  Isso assegura que, se um token foi admitido por múltiplos experts, suas contribuições somam para ~1.
-
-* **(2) Config sanity**
-  Garanta que `router_weight` exista no `config` (está sendo usado ao calcular `router_loss`). Ex.:
-
-  ```python
-  self.router_weight = getattr(config, "router_weight", 0.0)
-  ```
-
-* **(3) k=1 primeiro**
-  Comece com `k=1` (Switch-style): *debuggabilidade* e custo menores. Depois experimente `k=2`.
-
----
-
-## Debug checklist (para não sofrer depois)
-
-* **Distribuição do uso**: `%` de tokens por expert antes/depois da capacidade.
-* **Taxa de drop**: quantos *assignments* foram rejeitados? Ajuste `capacity_factor`.
-* **Gradientes do gate**: monitore norma dos logits (Z-loss ajuda).
-* **Estabilidade do *loss***: compare *baseline FFN* vs *MoE* em *val*.
-
----
-
-## Próximos passos
-
-No próximo trecho, plugar essa `MoELayer` no bloco Transformer (substituindo o FFN), ligar os *metrics* de balanceamento no *training loop* e analisar o efeito em *perplexity*.
-
-Se quiser, já deixo um *diff* pequeno de “weighted-combine + router_weight no config” para você colar no repo.
