@@ -26,7 +26,7 @@ Given a number of experts **n_experts**, the number of desired active experts **
 
 ---
 
-## The tiny Expert block
+## The Expert block
 
 The expert is actually the same as the conventional feedforward network from the Transformers architecture:
 
@@ -187,6 +187,7 @@ The ideal result is a well balanced set of experts, where each expert is importa
 Just like for the **Router loss**, **w** is a coefficient to help control the contribution of the **Balance loss**.
 
 ```python
+
 importance = router_probs.mean(dim=0)  # (E,)
 load = torch.zeros(self.n_experts, device=H.device, dtype=router_probs.dtype)
 for e in range(self.n_experts):
